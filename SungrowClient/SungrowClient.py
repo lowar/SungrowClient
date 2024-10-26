@@ -1,8 +1,4 @@
 
-from SungrowModbusTcpClient import SungrowModbusTcpClient
-from SungrowModbusWebClient import SungrowModbusWebClient
-from pymodbus.client import ModbusTcpClient
-
 from .version import __version__
 from datetime import datetime
 
@@ -57,11 +53,14 @@ class SungrowClient():
             return True
 
         if self.inverter_config['connection'] == "http":
+            from SungrowModbusTcpClient import SungrowModbusTcpClient
             self.client_config['port'] = '8082'
             self.client = SungrowModbusWebClient.SungrowModbusWebClient(**self.client_config)
         elif self.inverter_config['connection'] == "sungrow":
+            from SungrowModbusWebClient import SungrowModbusWebClient
             self.client = SungrowModbusTcpClient.SungrowModbusTcpClient(**self.client_config)
         elif self.inverter_config['connection'] == "modbus":
+            from pymodbus.client import ModbusTcpClient
             self.client = ModbusTcpClient(**self.client_config)
         else:
             logging.warning(f"Inverter: Unknown connection type {self.inverter_config['connection']}, Valid options are http, sungrow or modbus")

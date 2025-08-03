@@ -7,16 +7,64 @@ import logging.handlers
 import time
 
 class SungrowClient():
+
+    class ModBusClientWrapper:
+        def __init__(self, config_inverter):
+            self._connection_type = config_inverter.get('connection')
+            self.client_config = {
+                "host":     config_inverter.get('host'),
+                "port":     config_inverter.get('port'),
+                "timeout":  config_inverter.get('timeout'),
+                "retries":  config_inverter.get('retries'),
+            }
+            if self._connection_type == "http":
+                from SungrowModbusWebClient import SungrowModbusWebClient
+                self.client_config['port'] = '8082'
+                self._client = SungrowModbusWebClient.SungrowModbusWebClient(**self.client_config)
+            elif self._connection_type == "sungrow":
+                from SungrowModbusTcpClient import SungrowModbusTcpClient
+                self._client = SungrowModbusTcpClient.SungrowModbusTcpClient(**self.client_config)
+            elif self._connection_type == "modbus":
+                from pymodbus.client import ModbusTcpClient
+                self._client = ModbusTcpClient(**self.client_config)
+            else:
+                logging.warning(f"Inverter: Unknown connection type {self.inverter_config['connection']}, Valid options are http, sungrow or modbus")
+                return False
+
+        def __getattr__(self, name):
+            # Forward any unknown attribute access to the wrapped client
+            return getattr(self._client, name)
+
+        def read_input_registers(self, start, count, device_id):
+            if self._connection_type == "modbus":
+                from pymodbus import __version__ as pymodbus_version
+                if pymodbus_version < '3.0.0':
+                    reg = self._client.read_input_registers(start=start, count=count, unit=self.inverter_config['slave'])
+                if pymodbus_version >= '3.0.0' and pymodbus_version < '3.10.0':
+                    reg = self._client.read_input_registers(start=start, count=count, slave=self.inverter_config['slave'])
+                elif pymodbus_version >= '3.10.0':
+                    reg = self._client.read_input_registers(start=start, count=count, device_id=self.inverter_config['slave'])
+            else:
+                reg = self._client.read_input_registers(start=start, count=count, slave=self.inverter_config['slave'])
+            return reg
+
+        def read_holding_registers(self, start, count, device_id):
+            if self._connection_type == "modbus":
+                from pymodbus import __version__ as pymodbus_version
+                if pymodbus_version < '3.0.0':
+                    reg = self._client.read_holding_registers(start=start, count=count, unit=self.inverter_config['slave'])
+                if pymodbus_version >= '3.0.0' and pymodbus_version < '3.10.0':
+                    reg = self._client.read_holding_registers(start=start, count=count, slave=self.inverter_config['slave'])
+                elif pymodbus_version >= '3.10.0':
+					reg = self._client.read_holding_registers(start=start, count=count, device_id=self.inverter_config['slave'])
+            else:
+                reg = self._client.read_holding_registers(start=start, count=count, slave=self.inverter_config['slave'])
+            return reg
+
     def __init__(self, config_inverter):
 
         logging.info(f'Loading SungrowClient {__version__}')
 
-        self.client_config = {
-            "host":     config_inverter.get('host'),
-            "port":     config_inverter.get('port'),
-            "timeout":  config_inverter.get('timeout'),
-            "retries":  config_inverter.get('retries'),
-        }
         self.inverter_config = {
             "model":            config_inverter.get('model'),
             "serial_number":    config_inverter.get('serial_number'),
@@ -52,19 +100,7 @@ class SungrowClient():
             except: return False
             return True
 
-        if self.inverter_config['connection'] == "http":
-            from SungrowModbusWebClient import SungrowModbusWebClient
-            self.client_config['port'] = '8082'
-            self.client = SungrowModbusWebClient.SungrowModbusWebClient(**self.client_config)
-        elif self.inverter_config['connection'] == "sungrow":
-            from SungrowModbusTcpClient import SungrowModbusTcpClient
-            self.client = SungrowModbusTcpClient.SungrowModbusTcpClient(**self.client_config)
-        elif self.inverter_config['connection'] == "modbus":
-            from pymodbus.client import ModbusTcpClient
-            self.client = ModbusTcpClient(**self.client_config)
-        else:
-            logging.warning(f"Inverter: Unknown connection type {self.inverter_config['connection']}, Valid options are http, sungrow or modbus")
-            return False
+        self.client = ModBusClientWrapper(self.inverter_config)
         logging.info("Connection: " + str(self.client))
 
         try: self.client.connect()
@@ -197,9 +233,9 @@ class SungrowClient():
         try:
             logging.debug(f'load_registers: {register_type}, {start}:{count}')
             if register_type == "read":
-                rr = self.client.read_input_registers(start, count=count, slave=self.inverter_config['slave'])
+                rr = self.client.read_input_registers(start, count, self.inverter_config['slave'])
             elif register_type == "hold":
-                rr = self.client.read_holding_registers(start, count=count, slave=self.inverter_config['slave'])
+                rr = self.client.read_holding_registers(start, count, self.inverter_config['slave'])
             else:
                 raise RuntimeError(f"Unsupported register type: {type}")
         except Exception as err:
@@ -322,7 +358,7 @@ class SungrowClient():
         return False
 
     def getHost(self):
-        return self.client_config['host']
+        return self.client.client_config['host']
 
     def getInverterModel(self, clean=False):
         if clean:
